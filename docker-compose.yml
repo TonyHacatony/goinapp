@@ -1,0 +1,122 @@
+version: '3.8'
+
+services:
+  app:
+    build:
+      context: ./goapp
+      dockerfile: Dockerfile
+    container_name: app-service
+    ports:
+      - "8088:8088"
+    environment:
+      - PORT=8088
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8088/list"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
+    networks:
+      - app-network
+
+  influxdb:
+    image: influxdb:3.4.0-core
+    container_name: influxdb
+    ports:
+      - "8181:8181" 
+    environment:
+      - INFLUXDB_DB=k6
+      - INFLUXDB3_OBJECT_STORE=file
+      - INFLUXDB3_NODE_IDENTIFIER_PREFIX=node1
+      - INFLUXDB3_DATA_DIR=/var/lib/influxdb3
+    command:
+      - influxdb3
+      - serve
+      - --node-id=node0
+      - --object-store=file
+      - --data-dir=/var/lib/influxdb3/data
+      # Not good for production, but for testing it's ok
+      - --without-auth
+    volumes:
+      - ./data/influxdb3:/var/lib/influxdb3
+    networks:
+      - app-network
+  k6:
+    image: grafana/k6:1.2.3
+    container_name: k6
+    depends_on:
+      app:
+        condition: service_healthy
+      influxdb:
+        condition: service_started
+    command: run --out influxdb=http://influxdb:8181/k6 /scripts/test-script.js
+    volumes:
+      - ./observability/k6:/scripts
+    networks:
+      - app-network
+
+  grafana:
+    image: grafana/grafana:11.5.0
+    container_name: grafana
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_DATASOURCES_ALLOW_EDIT: "false"
+      GF_PATHS_PROVISIONING: /etc/grafana/provisioning
+    volumes:
+      - ./observability/grafana/provisioning:/etc/grafana/provisioning:ro
+    ports:
+      - "3000:3000"
+    networks:
+      - app-network
+    depends_on:
+      - influxdb
+      - loki
+      - prometheus
+      - fluentbit
+    
+  prometheus:
+    image: prom/prometheus:v3.5.0
+    container_name: prometheus
+    volumes:
+      - ./observability/prometheus/prometheus.yaml:/etc/prometheus/prometheus.yaml:ro
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yaml"
+    ports:
+      - "9090:9090"
+    networks:
+      - app-network
+  fluentbit:
+    image: fluent/fluent-bit:4.0.9
+    container_name: fluentbit
+    volumes:
+      - ./observability/fluent-bit/fluent-bit.conf:/fluent-bit/etc/fluent-bit.conf
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+      - /var/run/docker.sock:/var/run/docker.sock
+    command: /fluent-bit/bin/fluent-bit -c /fluent-bit/etc/fluent-bit.conf
+    ports:
+      - "2020:2020"
+    networks:
+      - app-network
+    depends_on:
+      - loki
+  loki:
+    image: grafana/loki:3.5.0
+    container_name: loki
+    restart: unless-stopped
+    volumes:
+      - ./observability/loki/loki-config.yaml:/etc/loki/config.yaml:ro
+      - ./data/index:/data/loki/index
+      - ./data/cache:/data/loki/cache
+      - ./data/chunks:/data/loki/chunks
+    ports:
+      - "3100:3100"
+    command:
+      - -config.file=/etc/loki/config.yaml
+    networks:
+      - app-network
+
+networks:
+  app-network:
+    driver: bridge

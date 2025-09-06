@@ -1,0 +1,28 @@
+apiVersion: 1
+
+datasources:
+  - name: Prometheus
+    type: prometheus
+    access: proxy
+    url: http://prometheus:9090
+    isDefault: true
+
+  # - name: Zipkin
+  #   type: zipkin
+  #   access: proxy
+  #   url: http://zipkin:9411
+
+  - name: Loki
+    type: loki
+    access: proxy
+    url: http://loki:3100
+
+  - name: influxdb-k6
+    type: influxdb
+    access: proxy
+    url: http://influxdb:8181
+    database: k6
+    editable: true
+    uid: influxdb-k6
+    jsonData:
+      version: InfluxQL

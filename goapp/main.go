@@ -6,6 +6,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"os"
 	"sync"
 )
 
@@ -57,7 +58,11 @@ func main() {
 	http.HandleFunc("/list", getHandler)
 	http.HandleFunc("/add", setHandler)
 
-	port := ":8088"
+	port := os.Getenv("PORT")
+	if port == "" {
+		port = "8088"
+	}
+
 	fmt.Printf("Server starting on port %s\n", port)
-	log.Fatal(http.ListenAndServe(port, nil))
+	log.Fatal(http.ListenAndServe(":"+port, nil))
 }
